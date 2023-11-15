@@ -20,5 +20,6 @@ docker-compose exec app php artisan db:seed
 
 ## Usage
 
-grafana: http://localhost:3000
+grafana(ID/PW: admin): http://localhost:3000
+
 app: http://localhost:8080
