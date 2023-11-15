@@ -1,0 +1,93 @@
+version: '3'
+services:
+  grafana:
+    image: grafana/grafana-enterprise:latest
+    restart: unless-stopped
+    volumes:
+      #- ./docker/grafana/grafana.ini:/etc/grafana/grafana.ini
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning
+      - grafana-data:/var/lib/grafana
+    ports:
+      - 3000:3000
+    depends_on:
+      - prometheus
+      - opentelemetry-collector
+      - tempo
+      - loki
+      - app
+
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - "--web.enable-remote-write-receiver"
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+
+  tempo:
+    image: grafana/tempo:latest
+    command:
+      - "-config.file=/etc/tempo.yaml"
+    volumes:
+      - ./docker/tempo/tempo.yaml:/etc/tempo.yaml
+
+  loki:
+    image: grafana/loki:latest
+    volumes:
+      - ./docker/loki/loki.yaml:/etc/loki/loki.yaml
+    command:
+      - "-config.file=/etc/loki/loki.yaml"
+
+  opentelemetry-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    volumes:
+      - ./docker/opentelemetry-collector/otel-config.yaml:/etc/otel-config.yaml
+    command:
+      - "--config=/etc/otel-config.yaml"
+    depends_on:
+      - prometheus
+      - tempo
+      - loki
+
+  app:
+    build:
+      context: ./
+      dockerfile: ./docker/app/Dockerfile
+    volumes:
+      - .:/var/www/html
+    ports:
+      - 8888:80
+    depends_on:
+      - db
+      - opentelemetry-collector
+    environment:
+      - TZ=Asia/Tokyo
+      - OTEL_PHP_AUTOLOAD_ENABLED=true
+      - OTEL_SERVICE_NAME=app
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=none
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://opentelemetry-collector:4318
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://opentelemetry-collector:4318/v1/traces
+      - OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://opentelemetry-collector:4318/v1/logs
+      - OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://opentelemetry-collector:4318/v1/metrics
+      - OTEL_PROPAGATORS=baggage,tracecontext
+
+  db:
+    image: mysql:8.0
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - db-data:/var/lib/mysql
+    environment:
+      - MYSQL_DATABASE=otel-sample
+      - MYSQL_USER=otel-sample
+      - MYSQL_PASSWORD=otel-sample
+      - MYSQL_ROOT_PASSWORD=otel-sample
+    ports:
+      - 33333:3306
+
+volumes:
+  db-data:
+  grafana-data:
